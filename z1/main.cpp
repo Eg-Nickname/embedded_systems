@@ -48,21 +48,21 @@ static_assert(DistConfig::PP_TIMES[1] > 0 &&
 static_assert(DistConfig::CON_CHANCE > 0 && DistConfig::CON_CHANCE < 100,
               "Chance can only be 0-100%");
 
-void get_input_data(int32_t &tc, int32_t &pp, int32_t &hc, int32_t &cl,
-                    bool &random_edge_w, std::string &output_file);
+void get_input_data(int32_t& tc, int32_t& pp, int32_t& hc, int32_t& cl,
+                    bool& random_edge_w, std::string& output_file);
 
 std::vector<std::unordered_map<uint32_t, uint32_t>> gen_dag(uint32_t node_count,
                                                             bool random_edge_w);
 
 void gen_file_structure(int32_t tc, int32_t pp, int32_t hc, int32_t cl,
-                        bool random_edge_w, std::string &output_file);
+                        bool random_edge_w, std::string& output_file);
 
 void save_to_file(std::vector<std::unordered_map<uint32_t, uint32_t>> adj,
-                  std::vector<std::vector<uint32_t>> &proc,
-                  std::vector<std::vector<int32_t>> &times,
-                  std::vector<std::vector<int32_t>> &cost,
-                  std::vector<std::vector<int32_t>> &comms,
-                  std::string &output_file);
+                  std::vector<std::vector<uint32_t>>& proc,
+                  std::vector<std::vector<int32_t>>& times,
+                  std::vector<std::vector<int32_t>>& cost,
+                  std::vector<std::vector<int32_t>>& comms,
+                  std::string& output_file);
 
 int main() {
     int32_t tc = -1;
@@ -80,41 +80,49 @@ int main() {
               << " Output File: " << output_file << "\n";
 }
 
-void get_input_data(int32_t &tc, int32_t &pp, int32_t &hc, int32_t &cl,
-                    bool &random_edge_w, std::string &output_file) {
+void get_input_data(int32_t& tc, int32_t& pp, int32_t& hc, int32_t& cl,
+                    bool& random_edge_w, std::string& output_file) {
     // Insert task count
     std::cout << "Insert task count: " << std::endl;
     std::cin >> tc;
-    while (tc < 0) {
+    while (tc <= 0) {
         std::cout << "Task count must be a positive. Please insert again: "
                   << std::endl;
         std::cin >> tc;
     }
-
-    // Insert Programable Processor count
-    std::cout << "Insert Programable Processors (PP) count: " << std::endl;
-    std::cin >> pp;
-    while (pp < 0) {
-        std::cout << "Programable Processor count must be a positive. Please "
-                     "insert again: "
-                  << std::endl;
+    while (hc + pp <= 0) {
+        // Insert Programable Processor count
+        std::cout << "Insert Programable Processors (PP) count: " << std::endl;
         std::cin >> pp;
-    }
+        while (pp < 0) {
+            std::cout
+                << "Programable Processor count must be a positive. Please "
+                   "insert again: "
+                << std::endl;
+            std::cin >> pp;
+        }
 
-    // Insert Hardware Core
-    std::cout << "Insert Hardware Core (HC) count: " << std::endl;
-    std::cin >> hc;
-    while (hc < 0) {
-        std::cout
-            << "Hardware Core count must be a positive. Please insert again: "
-            << std::endl;
+        // Insert Hardware Core
+        std::cout << "Insert Hardware Core (HC) count: " << std::endl;
         std::cin >> hc;
+        while (hc < 0) {
+            std::cout << "Hardware Core count must be a positive. Please "
+                         "insert again: "
+                      << std::endl;
+            std::cin >> hc;
+        }
+        if ((hc + pp) <= 0) {
+            std::cout << "Total processor count (PP + HC) must be greater than "
+                         "0. Please "
+                         "insert again PP and HC counts."
+                      << std::endl;
+        }
     }
 
     // Insert Communication Link count
     std::cout << "Insert Communication Link count: " << std::endl;
     std::cin >> cl;
-    while (cl < 0) {
+    while (cl <= 0) {
         std::cout << "Communication Link count must be a positive. Please "
                      "insert again: "
                   << std::endl;
@@ -146,7 +154,6 @@ gen_dag(uint32_t node_count, bool random_edge_w) {
 
     // Grpah
     std::vector<std::unordered_map<uint32_t, uint32_t>> adj(node_count);
-    std::cout << "Random edge_w " << random_edge_w << std::endl;
     if (random_edge_w) {
         edge_dist = std::uniform_int_distribution<std::uint32_t>(
             DistConfig::EDGE_WEIGHT[0], DistConfig::EDGE_WEIGHT[1]);
@@ -170,7 +177,7 @@ gen_dag(uint32_t node_count, bool random_edge_w) {
         for (int32_t cc = 0; cc < con_count_dist(gen); cc++) {
             auto con_node =
                 con_edge_dist(gen); // if con_node repeat, it will only update
-                                    // edge weight (random and we dont care)
+            // edge weight (random and we dont care)
             adj[con_node][n] = edge_dist(gen);
         }
     }
@@ -178,7 +185,7 @@ gen_dag(uint32_t node_count, bool random_edge_w) {
 }
 
 void gen_file_structure(int32_t tc, int32_t pp, int32_t hc, int32_t cl,
-                        bool random_edge_w, std::string &output_file) {
+                        bool random_edge_w, std::string& output_file) {
     int32_t p_count = pp + hc;
     // Random numbers
     std::random_device rd;
@@ -212,7 +219,7 @@ void gen_file_structure(int32_t tc, int32_t pp, int32_t hc, int32_t cl,
     // Chance of negative
     std::uniform_int_distribution<std::int32_t> skip_chance_dist(0, 100);
 
-    for (auto &t : times) {
+    for (auto& t : times) {
         uint32_t skips = 0;
         for (size_t i = 0; i < p_count; i++) {
             if (skip_chance_dist(gen) < DistConfig::PROC_SKIP_CHANCE) {
@@ -236,9 +243,9 @@ void gen_file_structure(int32_t tc, int32_t pp, int32_t hc, int32_t cl,
     std::uniform_int_distribution<std::int32_t> pp_cost_dist(
         DistConfig::PP_COST[0], DistConfig::PP_COST[1]);
     std::uniform_int_distribution<std::int32_t> hc_cost_dist(
-        DistConfig::PP_COST[0], DistConfig::PP_COST[1]);
+        DistConfig::HC_COST[0], DistConfig::HC_COST[1]);
 
-    for (auto &c : cost) {
+    for (auto& c : cost) {
         for (size_t i = 0; i < p_count; i++) {
             if (i < pp) {
                 c[i] = pp_cost_dist(gen);
@@ -251,25 +258,29 @@ void gen_file_structure(int32_t tc, int32_t pp, int32_t hc, int32_t cl,
     // gen com
     // Columns 3 + procesor count, By default all connected
     std::vector<std::vector<int32_t>> comms(
-        cl, std::vector<int32_t>(p_count + 3, 1));
+        cl, std::vector<int32_t>(p_count + 2, 1));
     std::uniform_int_distribution<std::int32_t> con_cost_dist(
         DistConfig::CON_COST[0], DistConfig::CON_COST[1]);
     std::uniform_int_distribution<std::int32_t> con_bandwith_dist(
         DistConfig::CON_BANDWITH[0], DistConfig::CON_BANDWITH[1]);
     std::uniform_int_distribution<std::int32_t> con_chance_dist(0, 100);
-    for (auto &com : comms) {
+    for (auto& com : comms) {
         com[0] = con_cost_dist(gen);
         com[1] = con_bandwith_dist(gen);
         uint32_t skips = 0;
-        for (size_t i = 2; i < p_count + 3; i++) {
+        for (size_t i = 2; i < comms.size(); i++) {
             if (con_chance_dist(gen) < DistConfig::CON_CHANCE) {
                 com[i] = 0;
+                skips++;
             }
+        }
+        if (skips == p_count) {
+            com[2] = 1; // ensure at least one connection
         }
     }
     // Check that every processor is connected to at least one Cl
     std::uniform_int_distribution<std::int32_t> con_id(0, cl - 1);
-    for (size_t i = 2; i < p_count + 3; i++) {
+    for (size_t i = 2; i < comms.size(); i++) {
         uint32_t cons = 0;
         for (size_t con_c = 0; con_c < comms.size(); con_c++) {
             cons += comms[con_c][i]; // Only 0 or 1 if not connected sum = 0
@@ -284,11 +295,11 @@ void gen_file_structure(int32_t tc, int32_t pp, int32_t hc, int32_t cl,
 }
 
 void save_to_file(std::vector<std::unordered_map<uint32_t, uint32_t>> adj,
-                  std::vector<std::vector<uint32_t>> &proc,
-                  std::vector<std::vector<int32_t>> &times,
-                  std::vector<std::vector<int32_t>> &cost,
-                  std::vector<std::vector<int32_t>> &comms,
-                  std::string &output_file) {
+                  std::vector<std::vector<uint32_t>>& proc,
+                  std::vector<std::vector<int32_t>>& times,
+                  std::vector<std::vector<int32_t>>& cost,
+                  std::vector<std::vector<int32_t>>& comms,
+                  std::string& output_file) {
     // Open file for data write
     std::fstream file;
     file.open(output_file, std::ios::out);
@@ -305,7 +316,7 @@ void save_to_file(std::vector<std::unordered_map<uint32_t, uint32_t>> adj,
         // with weights
         file << task_id << " " << adj[task_id].size();
         // List all tasks
-        for (auto &[succesor, weight] : adj[task_id]) {
+        for (auto& [succesor, weight] : adj[task_id]) {
             file << " " << succesor << "(" << weight
                  << ")"; // insert space before each entry to spearate them
         }
@@ -315,15 +326,15 @@ void save_to_file(std::vector<std::unordered_map<uint32_t, uint32_t>> adj,
 
     // SAVE @proc
     file << "@proc " << proc.size() << std::endl;
-    for (auto &p : proc) {
+    for (auto& p : proc) {
         file << p[0] << " " << p[1] << " " << p[2] << std::endl;
     }
     file << std::endl;
 
     // SAVE @times
     file << "@times" << std::endl;
-    for (auto &t_row : times) {
-        for (auto &t : t_row) {
+    for (auto& t_row : times) {
+        for (auto& t : t_row) {
             file << t << " ";
         }
         file << std::endl;
@@ -332,8 +343,8 @@ void save_to_file(std::vector<std::unordered_map<uint32_t, uint32_t>> adj,
 
     // SAVE @cost
     file << "@cost" << std::endl;
-    for (auto &c_row : cost) {
-        for (auto &c : c_row) {
+    for (auto& c_row : cost) {
+        for (auto& c : c_row) {
             file << c << " ";
         }
         file << std::endl;
@@ -344,7 +355,7 @@ void save_to_file(std::vector<std::unordered_map<uint32_t, uint32_t>> adj,
     file << "@comm " << comms.size() << std::endl;
     for (size_t com_id = 0; com_id < comms.size(); com_id++) {
         file << "chan" << com_id << " ";
-        for (auto &ce : comms[com_id]) {
+        for (auto& ce : comms[com_id]) {
             file << ce << " ";
         }
         file << std::endl;
