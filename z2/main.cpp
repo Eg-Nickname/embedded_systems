@@ -183,7 +183,7 @@ uint32_t TaskGraph::calculate_cost_for_optimal_system() {
     }
     // Count connections
     for (size_t c = 0; c < this->comms.size(); c++) {
-        for (size_t i = 0; i < proc.size(); i++) {
+        for (size_t i = 0; i < this->comms[c].conections.size(); i++) {
             if (proc[i][2] == 1 && pe_usage[i] > 0 &&
                 this->comms[c].conections[i]) {
                 system_cost += this->comms[c].cost;
@@ -356,7 +356,7 @@ TaskGraph::parse_comms(std::fstream &file, uint32_t cl, uint32_t pe) {
         } else {
             std::cerr << "@comm section has not enough CLs declared."
                       << std::endl;
-            throw std::invalid_argument("File structure notvalid");
+            throw std::invalid_argument("File structure not valid");
         }
     }
     return comm;
