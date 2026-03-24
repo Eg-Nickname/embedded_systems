@@ -166,8 +166,6 @@ TaskGraph::TaskGraph(std::string file_path) {
 }
 
 uint32_t TaskGraph::calculate_cost_for_optimal_system() {
-    // For each task get minimum
-    std::vector<uint32_t> pe_usage(this->proc.size());
     // Store each task assigned to pe
     std::vector<std::vector<uint32_t>> pe_tasks(this->proc.size());
 
@@ -189,17 +187,11 @@ uint32_t TaskGraph::calculate_cost_for_optimal_system() {
 
         auto min_it =
             std::min_element(transformed_view.begin(), transformed_view.end());
-        std::cout << "min=" << *min_it << "\n";
 
         size_t pe_id = std::distance(transformed_view.begin(), min_it);
         task_pe.push_back(pe_id);
         task_time.push_back(*min_it);
         pe_tasks[pe_id].push_back(task_pe.size() - 1);
-        pe_usage[pe_id]++;
-    }
-
-    for (auto &p : pe_usage) {
-        std::cout << p << " ";
     }
 
     // Calculate total cost of system
@@ -208,7 +200,7 @@ uint32_t TaskGraph::calculate_cost_for_optimal_system() {
     // TODO Alternativly calculate how many pp of this type we need to achive
     // maximum parallelism First add cost of all PP
     for (size_t i = 0; i < proc.size(); i++) {
-        if (proc[i][2] == 1 && pe_usage[i] > 0) {
+        if (proc[i][2] == 1 && pe_tasks[i].size() > 0) {
             system_cost += proc[i][0];
         }
     }
@@ -223,11 +215,11 @@ uint32_t TaskGraph::calculate_cost_for_optimal_system() {
     // avalible conections for our FASTEST system
     for (size_t c = 0; c < this->comms.size(); c++) {
         for (size_t i = 0; i < this->comms[c].conections.size(); i++) {
-            if (proc[i][2] == 1 && pe_usage[i] > 0 &&
+            if (proc[i][2] == 1 && pe_tasks[i].size() > 0 &&
                 this->comms[c].conections[i]) {
                 system_cost += this->comms[c].cost;
             } else {
-                system_cost += this->comms[c].cost * pe_usage[i];
+                system_cost += this->comms[c].cost * pe_tasks[i].size();
             }
         }
     }
@@ -273,7 +265,6 @@ TaskGraph::parse_tasks(std::fstream &file, uint32_t tc) {
         if (std::getline(file, line)) {
             // parse line
             auto line_components = split_string(line, ' ');
-            std::cout << line_components[0] << std::endl;
             uint32_t succesors = std::stoi(line_components[1]);
             if (line_components.size() < 2 &&
                 line_components.size() < succesors + 2) {
