@@ -4,6 +4,7 @@
 #include <iostream>
 #include <iterator>
 #include <ostream>
+#include <queue>
 #include <ranges>
 #include <sstream>
 #include <stdexcept>
@@ -86,6 +87,9 @@ class TaskGraph {
 
     static std::vector<CommunicationLane> parse_comms(std::fstream &file,
                                                       uint32_t cl, uint32_t pe);
+
+    public:
+    std::vector<size_t> calculate_start_times(std::vector<uint32_t> task_time);
 };
 
 std::vector<std::string> split_string(std::string str, char sep);
@@ -100,9 +104,23 @@ auto main(int32_t argc, char **argv) -> int {
     }
     TaskGraph tg = TaskGraph(fp);
     uint32_t cost = tg.calculate_cost_for_optimal_system();
-    std::cout << std::endl;
-    std::cout << "Cost of fastest system is " << cost << " units";
+    // auto _ = tg.calculate_start_times();
+
+    // std::cout << std::endl;
+    // std::cout << "Cost of fastest system is " << cost << " units";
     return 0;
+}
+
+std::vector<std::string> split_string(std::string str, char sep) {
+    std::vector<std::string> res{};
+
+    std::stringstream ss(str);
+    std::string line{};
+    while (std::getline(ss, line, sep)) {
+        res.push_back(line);
+    }
+
+    return res;
 }
 
 TaskGraph::TaskGraph(std::string file_path) {
@@ -124,20 +142,25 @@ TaskGraph::TaskGraph(std::string file_path) {
         if (line.size() > 0 && line.at(0) == '@') {
             std::vector<std::string> line_params = split_string(line, ' ');
 
-            if (line_params[0] == "@tasks") {
+            if (line_params[0].starts_with("@tasks")) {
                 tc = std::stoi(line_params[1]);
                 this->adj = this->parse_tasks(file, tc);
-            } else if (line_params[0] == "@proc") {
+                // std::cout << "tasks size " << adj.size() << "\n";
+            } else if (line_params[0].starts_with("@proc")) {
                 pe = std::stoi(line_params[1]);
                 this->proc = this->parse_proc(file, pe);
-            } else if (line_params[0] == "@times") {
+                // std::cout << "proc size " << proc.size() << "\n";
+            } else if (line_params[0].starts_with("@times")) {
                 this->times = this->parse_times(file, tc, pe);
-            } else if (line_params[0] == "@cost") {
+                // std::cout << "times size " << times.size() << "\n";
+            } else if (line_params[0].starts_with("@cost")) {
                 this->cost = this->parse_cost(file, tc, pe);
-            } else if (line_params[0] == "@comm") {
+                // std::cout << "cost size " << cost.size() << "\n";
+            } else if (line_params[0].starts_with("@comm")) {
                 cl = std::stoi(line_params[1]);
                 this->comms = this->parse_comms(file, cl, pe);
             }
+            // std::cout << "Line=\'" << line << "\'" << std::endl;
         }
     }
 }
@@ -145,17 +168,24 @@ TaskGraph::TaskGraph(std::string file_path) {
 uint32_t TaskGraph::calculate_cost_for_optimal_system() {
     // For each task get minimum
     std::vector<uint32_t> pe_usage(this->proc.size());
-    std::vector<uint32_t> task_pe{};
-    task_pe.reserve(adj.size());
+    // Store each task assigned to pe
+    std::vector<std::vector<uint32_t>> pe_tasks(this->proc.size());
 
-    for (auto &task_time : this->times) {
+    // store witch pe is assigned to each task
+    std::vector<uint32_t> task_pe{};
+    // store how long each task will take
+    std::vector<uint32_t> task_time{};
+    task_pe.reserve(adj.size());
+    task_time.reserve(adj.size());
+
+    for (auto &task_times : this->times) {
         auto map_to_max = [](uint32_t t) {
             return (t == -1) ? std::numeric_limits<uint32_t>::max() : t;
         };
 
         // Documentation ref
         // https://en.cppreference.com/w/cpp/ranges/transform_view.html
-        auto transformed_view = task_time | std::views::transform(map_to_max);
+        auto transformed_view = task_times | std::views::transform(map_to_max);
 
         auto min_it =
             std::min_element(transformed_view.begin(), transformed_view.end());
@@ -163,25 +193,34 @@ uint32_t TaskGraph::calculate_cost_for_optimal_system() {
 
         size_t pe_id = std::distance(transformed_view.begin(), min_it);
         task_pe.push_back(pe_id);
+        task_time.push_back(*min_it);
+        pe_tasks[pe_id].push_back(task_pe.size() - 1);
         pe_usage[pe_id]++;
     }
 
     for (auto &p : pe_usage) {
         std::cout << p << " ";
     }
+
     // Calculate total cost of system
     uint32_t system_cost = 0;
-    // First add cost of all PP
+
+    // TODO Alternativly calculate how many pp of this type we need to achive
+    // maximum parallelism First add cost of all PP
     for (size_t i = 0; i < proc.size(); i++) {
         if (proc[i][2] == 1 && pe_usage[i] > 0) {
             system_cost += proc[i][0];
         }
     }
+
     // Get cost of each task execution
     for (size_t t = 0; t < this->adj.size(); t++) {
         system_cost += cost[t][task_pe[t]];
     }
+
     // Count connections
+    // As we are not told how to optimize or chose CL. Assume we want all
+    // avalible conections for our FASTEST system
     for (size_t c = 0; c < this->comms.size(); c++) {
         for (size_t i = 0; i < this->comms[c].conections.size(); i++) {
             if (proc[i][2] == 1 && pe_usage[i] > 0 &&
@@ -192,6 +231,34 @@ uint32_t TaskGraph::calculate_cost_for_optimal_system() {
             }
         }
     }
+
+    // Get task start times
+    auto start_times = this->calculate_start_times(task_time);
+    std::vector<size_t> end_times(start_times.size());
+    std::transform(start_times.begin(), start_times.end(), task_time.begin(),
+                   end_times.begin(), std::plus<size_t>());
+
+    std::cout << "Task assignment:\n";
+    uint32_t pp_count = 0;
+    uint32_t hc_count = 0;
+    for (uint32_t i = 0; i < pe_tasks.size(); i++) {
+        if (this->proc[i][2] == 1) {
+            std::cout << "PP" << pp_count << ":";
+            pp_count++;
+        } else {
+            std::cout << "HC" << hc_count << ":";
+            hc_count++;
+        }
+
+        for (auto task : pe_tasks[i]) {
+            std::cout << " " << task << "(" << start_times[task] << ")";
+        }
+        std::cout << std::endl;
+    }
+    std::cout << "Fastest system cost " << system_cost << "\n";
+
+    std::cout << "System will perform all calculations after "
+              << *std::max_element(end_times.begin(), end_times.end());
 
     return system_cost;
 }
@@ -206,15 +273,17 @@ TaskGraph::parse_tasks(std::fstream &file, uint32_t tc) {
         if (std::getline(file, line)) {
             // parse line
             auto line_components = split_string(line, ' ');
+            std::cout << line_components[0] << std::endl;
+            uint32_t succesors = std::stoi(line_components[1]);
             if (line_components.size() < 2 &&
-                line_components.size() != std::stoi(line_components[1]) + 2 !=
-                    line_components.size()) {
+                line_components.size() < succesors + 2) {
                 // invalid adj structure
                 std::cerr << "Task " << t << " has wrong adj list declaration"
                           << std::endl;
                 continue;
             }
-            for (uint32_t i = 2; i < line_components.size(); i++) {
+
+            for (uint32_t i = 2; i < succesors + 2; i++) {
                 // component structure 12(9)
                 auto weight_start_pos =
                     std::distance(line_components[i].begin(),
@@ -362,14 +431,30 @@ TaskGraph::parse_comms(std::fstream &file, uint32_t cl, uint32_t pe) {
     return comm;
 }
 
-std::vector<std::string> split_string(std::string str, char sep) {
-    std::vector<std::string> res{};
-
-    std::stringstream ss(str);
-    std::string line{};
-    while (std::getline(ss, line, sep)) {
-        res.push_back(line);
+std::vector<size_t>
+TaskGraph::calculate_start_times(std::vector<uint32_t> task_time) {
+    // Stores Indegree of node
+    std::vector<size_t> indegre(this->adj.size());
+    for (auto &nb_list : adj) {
+        for (auto &n : nb_list) {
+            ++indegre[n.first];
+        }
     }
+    std::vector<size_t> start_times(this->adj.size());
 
-    return res;
+    std::queue<uint32_t> q{};
+
+    q.push(0);
+    while (!q.empty()) {
+        uint32_t cur = q.front();
+        q.pop();
+        for (auto &[nb, _] : adj[cur]) {
+            start_times[nb] =
+                std::max(start_times[nb], start_times[cur] + task_time[cur]);
+            if (--(indegre[nb]) == 0) {
+                q.push(nb);
+            }
+        }
+    }
+    return start_times;
 }
