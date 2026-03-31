@@ -411,7 +411,7 @@ TaskGraph::parse_comms(std::fstream &file, uint32_t cl, uint32_t pe) {
             comm[c].bandwith = std::stoi(line_components[2]);
 
             for (uint32_t p = 0; p < pe; p++) {
-                comm[c].conections.push_back(std::stoi(line_components[2 + p]));
+                comm[c].conections.push_back(std::stoi(line_components[3 + p]));
             }
         } else {
             std::cerr << "@comm section has not enough CLs declared."
