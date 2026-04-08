@@ -129,9 +129,10 @@ class TaskGraph {
     // ASSIGN PP
     public:
     uint32_t assign_pp();
-    std::vector<uint32_t> calculate_priorities();
+    std::vector<uint32_t> calculate_priorities(uint32_t pp);
     // uint32_t calc_prioirty();
-    uint32_t calc_prioirty(uint32_t node, std::vector<uint32_t>& visited,
+    uint32_t calc_prioirty(uint32_t pp, uint32_t node,
+                           std::vector<uint32_t>& visited,
                            std::vector<uint32_t>& cost);
 
     public:
@@ -392,22 +393,24 @@ uint32_t TaskGraph::assign_pp() {
     return -1;
 }
 
-std::vector<uint32_t> TaskGraph::calculate_priorities() {
+std::vector<uint32_t> TaskGraph::calculate_priorities(uint32_t pp) {
     std::vector<uint32_t> priorities(this->times.size(), 0);
     std::vector<uint32_t> visited(this->times.size(), 0);
 
-    calc_prioirty(0, visited, priorities);
+    calc_prioirty(pp, 0, visited, priorities);
 
     return priorities;
 }
 
-uint32_t TaskGraph::calc_prioirty(uint32_t node, std::vector<uint32_t>& visited,
+uint32_t TaskGraph::calc_prioirty(uint32_t pp, uint32_t node,
+                                  std::vector<uint32_t>& visited,
                                   std::vector<uint32_t>& cost) {
     if (visited[node] == 0) {
         visited[node] = 1;
         // calc priority of this node
         for (auto& [child, c_cost] : adj[node]) {
-            auto dfs = c_cost + calc_prioirty(child, visited, cost);
+            auto dfs =
+                times[child][pp] + calc_prioirty(pp, child, visited, cost);
             cost[node] = std::max(cost[node], dfs);
         }
     }
@@ -420,7 +423,7 @@ uint32_t TaskGraph::calculate_cost_of_list_select_system() {
         return -1;
     }
 
-    auto priorities = this->calculate_priorities();
+    auto priorities = this->calculate_priorities(pp);
 
     std::vector<size_t> indegre(this->adj.size());
     // Count indegree for topological sorting
