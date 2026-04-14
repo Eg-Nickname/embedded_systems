@@ -5,13 +5,19 @@
 #include <iterator>
 #include <ostream>
 #include <queue>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using f64_t = double;
+namespace Config {
+constexpr uint32_t NEW_RESOURCE_CHANCE = 80;
+constexpr uint32_t MAX_ITERS = 100000;
+} // namespace Config
 
 struct CommunicationLane {
     std::string name;
@@ -69,9 +75,11 @@ struct ProcessingElement {
     uint32_t cost;
     uint32_t other;
     PeType type;
+    uint32_t type_uid;
 
-    ProcessingElement() : cost(0), other(0), type(PeType::PP) {}
-    ProcessingElement(uint32_t c, uint32_t o, uint32_t t) : cost(c), other(o) {
+    ProcessingElement() : cost(0), other(0), type(PeType::PP), type_uid(0) {}
+    ProcessingElement(uint32_t c, uint32_t o, uint32_t t, uint32_t t_uid)
+        : cost(c), other(o), type_uid(t_uid) {
         if (t == 0) {
             type = PeType::HC;
         } else {
@@ -88,28 +96,17 @@ class TaskGraph {
     std::vector<std::vector<int32_t>> cost;
     std::vector<CommunicationLane> comms;
 
-    // Processed data
-
-    // Stores how long each task will take
-    std::vector<f64_t> task_time{};
-    // Stores witch pe is assigned to each task
-    std::vector<uint32_t> task_pe{};
-
-    // Stores each task assigned to pe
-    std::vector<std::vector<uint32_t>> pe_tasks{};
-
     // Maps cl to another map that tells how many of each PE were
     // connected to it
     std::unordered_map<std::string, std::unordered_map<uint32_t, uint32_t>>
         cl_usage;
 
     public:
+    f64_t max_time = 0.0;
     // Loads task graph from providded file path
-    TaskGraph(std::string file_path);
+    TaskGraph(std::string file_path, f64_t max_time);
 
     // Calculates cost of most time optimal system
-    // uint32_t calculate_cost_for_optimal_system();
-
     private:
     // PARSING
     static std::vector<std::vector<std::pair<uint32_t, uint32_t>>>
@@ -126,32 +123,39 @@ class TaskGraph {
 
     static std::vector<CommunicationLane> parse_comms(std::fstream& file,
                                                       uint32_t cl, uint32_t pe);
-    // ASSIGN PP
-    public:
-    uint32_t assign_pp();
-    std::vector<uint32_t> calculate_priorities(uint32_t pp);
-    // uint32_t calc_prioirty();
-    uint32_t calc_prioirty(uint32_t pp, uint32_t node,
-                           std::vector<uint32_t>& visited,
-                           std::vector<uint32_t>& cost);
 
     public:
-    uint32_t calculate_cost_of_list_select_system();
-    // std::vector<f64_t> calculate_start_times();
+    int32_t calculate_cost_of_random_select_system();
 };
 
 std::vector<std::string> split_string(std::string str, char sep);
 
 auto main(int32_t argc, char** argv) -> int {
     std::string fp;
-    if (argc == 1) {
-        std::cout << "Input task graph file path: " << std::endl;
-        std::cin >> fp;
+    int max_t = 0;
+    if (argc <= 2) {
+        std::cerr << "Provide file name and max time as arguments" << std::endl;
+        return 1;
     } else {
         fp = std::string(argv[1]);
+        max_t = std::stoi(argv[2]);
     }
-    TaskGraph tg = TaskGraph(fp);
-    auto _ = tg.calculate_cost_of_list_select_system();
+    // TODO ADD ARG PASSING OF THIS
+    f64_t max_time = (f64_t)max_t;
+
+    TaskGraph tg = TaskGraph(fp, max_time);
+    auto time = -1;
+    auto iters = 0;
+    while (iters < Config::MAX_ITERS && time == -1) {
+        time = tg.calculate_cost_of_random_select_system();
+        iters += 1;
+        // std::cout << "Iter " << iters << "\n";
+    }
+    if (iters == Config::MAX_ITERS) {
+        std::cout << "\nDone " << iters
+                  << " iterations without finding solution that satisfies time "
+                  << tg.max_time << "\n";
+    }
     return 0;
 }
 
@@ -167,12 +171,12 @@ std::vector<std::string> split_string(std::string str, char sep) {
     return res;
 }
 
-TaskGraph::TaskGraph(std::string file_path) {
+TaskGraph::TaskGraph(std::string file_path, f64_t maximum_time)
+    : max_time(maximum_time) {
     std::fstream file;
     file.open(file_path, std::ios::in);
     if (!file) {
-        std::cerr << "Cant open file to save TGFF File data: " << file_path
-                  << std::endl;
+        std::cerr << "Cant open TGFF File data: " << file_path << std::endl;
         exit(1);
     }
 
@@ -256,6 +260,8 @@ std::vector<ProcessingElement> TaskGraph::parse_proc(std::fstream& file,
     std::vector<ProcessingElement> proc{};
 
     std::string line{};
+    uint32_t pp_count = 0;
+    uint32_t hc_count = 0;
     // Parse params of every PE and HC
     for (uint32_t p = 0; p < pe_count; p++) {
         if (std::getline(file, line)) {
@@ -267,9 +273,16 @@ std::vector<ProcessingElement> TaskGraph::parse_proc(std::fstream& file,
                           << std::endl;
                 continue;
             }
-            proc.push_back(ProcessingElement(std::stoi(line_components[0]),
-                                             std::stoi(line_components[1]),
-                                             std::stoi(line_components[2])));
+            int pe_type = std::stoi(line_components[2]);
+            if (pe_type == 0) {
+                proc.push_back(ProcessingElement(std::stoi(line_components[0]),
+                                                 std::stoi(line_components[1]),
+                                                 pe_type, hc_count++));
+            } else {
+                proc.push_back(ProcessingElement(std::stoi(line_components[0]),
+                                                 std::stoi(line_components[1]),
+                                                 pe_type, pp_count++));
+            }
         } else {
             std::cerr << "@proc section has to many procesors declared."
                       << std::endl;
@@ -373,58 +386,13 @@ TaskGraph::parse_comms(std::fstream& file, uint32_t cl, uint32_t pe) {
     return comm;
 }
 
-uint32_t TaskGraph::assign_pp() {
-    for (uint32_t pe_id = 0; pe_id < this->proc.size(); pe_id++) {
-        if (this->proc[pe_id].type == PeType::PP) {
-            // check if pp can do all tasks
-            bool can_use = true;
-            for (uint32_t task_id = 0; task_id < this->times.size();
-                 task_id++) {
-                if (this->times[task_id][pe_id] == -1) {
-                    can_use = false;
-                    break;
-                }
-            }
-            if (can_use) {
-                return pe_id;
-            }
-        }
-    }
-    return -1;
-}
+struct UsedProcesor {
+    uint32_t proc_id;
+    std::vector<uint32_t> assigned_tasks;
+};
 
-std::vector<uint32_t> TaskGraph::calculate_priorities(uint32_t pp) {
-    std::vector<uint32_t> priorities(this->times.size(), 0);
-    std::vector<uint32_t> visited(this->times.size(), 0);
-
-    calc_prioirty(pp, 0, visited, priorities);
-
-    return priorities;
-}
-
-uint32_t TaskGraph::calc_prioirty(uint32_t pp, uint32_t node,
-                                  std::vector<uint32_t>& visited,
-                                  std::vector<uint32_t>& cost) {
-    if (visited[node] == 0) {
-        visited[node] = 1;
-        // calc priority of this node
-        for (auto& [child, c_cost] : adj[node]) {
-            auto dfs =
-                times[child][pp] + calc_prioirty(pp, child, visited, cost);
-            cost[node] = std::max(cost[node], dfs);
-        }
-    }
-    return cost[node];
-}
-
-uint32_t TaskGraph::calculate_cost_of_list_select_system() {
-    auto pp = this->assign_pp();
-    if (pp == -1) {
-        return -1;
-    }
-
-    auto priorities = this->calculate_priorities(pp);
-
+int32_t TaskGraph::calculate_cost_of_random_select_system() {
+    uint32_t cost = 0;
     std::vector<size_t> indegre(this->adj.size());
     // Count indegree for topological sorting
     for (auto& nb_list : adj) {
@@ -432,43 +400,126 @@ uint32_t TaskGraph::calculate_cost_of_list_select_system() {
             ++indegre[n.first];
         }
     }
+    std::vector<f64_t> start_times(this->times.size(), 0);
+    std::vector<f64_t> end_times(this->times.size(), 0);
 
-    auto cmp = [&priorities](const uint32_t& lhs_id, const uint32_t& rhs_id) {
-        return priorities[lhs_id] < priorities[rhs_id];
-    };
+    std::vector<UsedProcesor> used_processors{};
 
-    std::vector<uint32_t> start_time(this->times.size(), 0);
+    // Random setting
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<std::uint32_t> select_used_chance_dist =
+        std::uniform_int_distribution<std::uint32_t>(0, 100);
 
-    std::priority_queue<uint32_t, std::vector<uint32_t>, decltype(cmp)> pq(cmp);
-    pq.push(0);
+    std::uniform_int_distribution<std::uint32_t> select_proc_dist =
+        std::uniform_int_distribution<std::uint32_t>(0, this->proc.size() - 1);
 
-    uint32_t time_passed = 0;
-    std::cout << "Assigned PE:\nPP" << pp << ": ";
-    while (!pq.empty()) {
-        uint32_t cur = pq.top();
-        pq.pop();
+    auto iter = 0;
+    std::priority_queue<std::pair<uint32_t, uint32_t>> pq{};
+    pq.push({0, 0});
+    f64_t end_time = 0;
+    while (!pq.empty() && end_time <= this->max_time) {
+        // We want to assign all avalible tasks
+        ++iter;
+        for (uint32_t q = pq.size(); q > 0; --q) {
+            // we want to do all
+            auto [cur, data] = pq.top();
+            pq.pop();
+            // Randomise if we should get new proc or use already used
+            bool random_select =
+                Config::NEW_RESOURCE_CHANCE > select_used_chance_dist(gen);
+            if (!random_select) {
+                // We try to use old resource but if we fail we just skip to
+                // using new random
 
-        for (auto& [n, _] : adj[cur]) {
-            --indegre[n];
-            if (indegre[n] == 0) {
-                pq.push(n);
+                std::vector<uint32_t> avalible_processors;
+                for (uint32_t i = 0; i < used_processors.size(); i++) {
+                    if (this->proc[used_processors[i].proc_id].type ==
+                            PeType::PP &&
+                        this->times[cur][used_processors[i].proc_id] != -1) {
+                        // add proc as avalivable
+                        avalible_processors.push_back(i);
+                    }
+                }
+
+                if (avalible_processors.size() == 0) {
+                    random_select = true;
+                } else {
+                    std::uniform_int_distribution<std::uint32_t>
+                        select_used_dist =
+                            std::uniform_int_distribution<std::uint32_t>(
+                                0, avalible_processors.size() - 1);
+                    uint32_t used_proc =
+                        avalible_processors[select_used_dist(gen)];
+
+                    auto& pe = used_processors[used_proc];
+                    used_processors[used_proc].assigned_tasks.push_back(cur);
+                    // We start as son as all predecesor end or after our
+                    // assigned pp is free
+                    start_times[cur] = std::max(
+                        start_times[cur], end_times[pe.assigned_tasks.back()]);
+                    end_times[cur] =
+                        start_times[cur] + this->times[cur][pe.proc_id];
+                    cost +=
+                        this->cost[cur][pe.proc_id]; // add cost of performing
+                                                     // task on used processor
+                }
+            }
+
+            // We have to check again as prev if could have changed variable
+            if (random_select) {
+                // Randomly select new proc until
+                uint32_t pe = select_proc_dist(gen);
+                while (times[cur][pe] == -1) {
+                    pe = select_proc_dist(gen);
+                }
+
+                used_processors.push_back({pe, {cur}});
+                cost += this->proc[pe].cost;
+                cost += this->cost[cur][pe];
+
+                end_times[cur] = start_times[cur] + this->times[cur][pe];
+            }
+            end_time = std::max(end_time, end_times[cur]);
+            if (end_time > this->max_time) {
+                break;
+            }
+
+            // add elements into queue
+            for (auto& [c, d] : adj[cur]) {
+                --indegre[c];
+                if (indegre[c] == 0) {
+                    pq.push({c, d});
+                }
+                // Add start time of task
+                if (start_times[c] < end_times[cur]) {
+                    start_times[c] = end_times[cur];
+                }
             }
         }
-        start_time[cur] = time_passed;
-        time_passed += this->times[cur][pp];
-        std::cout << "T" << cur << " (" << start_time[cur] << ") ";
     }
-    std::cout << std::endl;
 
-    std::cout << "System will finish all tasks after: " << time_passed << "\n";
-    uint32_t cost = 0;
-    cost +=
-        proc[pp].cost; // We only have one PE and all tasks are assigned to it
-    for (auto& c : this->cost) {
-        cost += c[pp]; // add task cost of selected pp
+    if (end_time > this->max_time) {
+        return -1;
     }
 
     std::cout << "System will cost: " << cost << std::endl;
+    std::cout << "System will end calculations at: " << end_time << std::endl;
+    std::cout << "Task assignment:";
+
+    std::vector<uint32_t> proc_used(this->proc.size() + 1, 0);
+    for (const auto& p : used_processors) {
+        if (this->proc[p.proc_id].type == PeType::HC) {
+            std::cout << "\n\tHC";
+        } else {
+            std::cout << "\n\tPP";
+        }
+        std::cout << this->proc[p.proc_id].type_uid << "_"
+                  << proc_used[p.proc_id]++ << ": ";
+        for (const auto& t : p.assigned_tasks) {
+            std::cout << "T" << t << "(" << start_times[t] << ") ";
+        }
+    }
 
     return 0;
 }
