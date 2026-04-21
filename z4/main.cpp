@@ -151,17 +151,22 @@ auto main(int32_t argc, char** argv) -> int {
         fp = std::string(argv[1]);
     }
     TaskGraph tg = TaskGraph(fp);
+
     auto _ = tg.calculate_cost_of_list_select_system();
+
     return 0;
 }
 
 std::vector<std::string> split_string(std::string str, char sep) {
     std::vector<std::string> res{};
-
     std::stringstream ss(str);
-    std::string line{};
-    while (std::getline(ss, line, sep)) {
-        res.push_back(line);
+    std::string space_split_line{};
+    while (std::getline(ss, space_split_line, ' ')) {
+        std::string line{};
+        std::stringstream ss2(space_split_line);
+        while (std::getline(ss2, line, '	')) {
+            res.push_back(line);
+        }
     }
 
     return res;
@@ -171,7 +176,7 @@ TaskGraph::TaskGraph(std::string file_path) {
     std::fstream file;
     file.open(file_path, std::ios::in);
     if (!file) {
-        std::cerr << "Cant open file to save TGFF File data: " << file_path
+        std::cerr << "Cant open file to read TGFF File data: " << file_path
                   << std::endl;
         exit(1);
     }
@@ -232,14 +237,21 @@ TaskGraph::parse_tasks(std::fstream& file, uint32_t tc) {
                     std::distance(line_components[i].begin(),
                                   std::find(line_components[i].begin(),
                                             line_components[i].end(), '('));
+
+                auto weight_len =
+                    weight_start_pos +
+                    std::distance(std::find(line_components[i].begin(),
+                                            line_components[i].end(), '('),
+                                  std::find(line_components[i].begin(),
+                                            line_components[i].end(), ')'));
+
                 // Emplace pair of connecting edge and weight to adj
                 adj[t].emplace_back(
                     std::stoi(line_components[i].substr(0, weight_start_pos)),
                     // We have to offset start of substr to skip '(' and
                     // then calculate len of number in ()
-                    std::stoi(line_components[i].substr(
-                        weight_start_pos + 1,
-                        line_components[i].size() - weight_start_pos - 2)));
+                    std::stoi(line_components[i].substr(weight_start_pos + 1,
+                                                        weight_len - 2)));
             }
         } else {
             std::cerr << "@tasks section has to many tasks declared."
@@ -409,10 +421,11 @@ uint32_t TaskGraph::calc_prioirty(uint32_t pp, uint32_t node,
         visited[node] = 1;
         // calc priority of this node
         for (auto& [child, c_cost] : adj[node]) {
-            auto dfs =
-                times[child][pp] + calc_prioirty(pp, child, visited, cost);
+            auto dfs = calc_prioirty(pp, child, visited, cost);
             cost[node] = std::max(cost[node], dfs);
         }
+
+        cost[node] += this->times[node][pp];
     }
     return cost[node];
 }

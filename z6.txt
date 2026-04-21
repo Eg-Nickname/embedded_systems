@@ -1,0 +1,3 @@
+Bierzemy kolejny najszybszy. Kontynuujemy póki nie przekroczymy wymagania czasowego lub skończa się procesory do zmiany. Modyfikujemy najdroższe z zadań. Jesli nie mamy zadania do zmiany to konczymy robote. Optymalizujemy tylko względem kosztu póki możemy. JEśli zdanie trafia do istniejącego zasobu to szeregujemy.
+
+Wchodzi graf zadań i ograniczenie czasowe którego nie możemy przekroczyć optymalizując. Zakładamy zero na krawedziach
