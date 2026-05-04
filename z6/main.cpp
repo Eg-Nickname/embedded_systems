@@ -486,12 +486,37 @@ void TaskGraph::display_system() {
     uint32_t system_cost = 0;
     std::vector<std::vector<uint32_t>> pe_tasks(this->proc.size());
 
+    // Add cost of each task and create list of tasks that are assigned to each
+    // pe
     for (size_t t = 0; t < this->adj.size(); ++t) {
-        if (proc[task_pe[t]].type == PeType::PP) {
-            system_cost += proc[task_pe[t]].cost;
-        }
         system_cost += cost[t][this->task_pe[t]];
         pe_tasks[this->task_pe[t]].push_back(t);
+    }
+
+    // Imporve pp usage to reduce redundant pe
+    for (size_t pe = 0; pe < pe_tasks.size(); ++pe) {
+        if (proc[pe].type != PeType::PP) {
+            continue;
+        }
+        std::vector<std::pair<uint32_t, int>> events;
+        events.reserve(pe_tasks[pe].size() * 2);
+
+        for (uint32_t task_id : pe_tasks[pe]) {
+            events.emplace_back(this->start_times[task_id], 1);
+            events.emplace_back(this->end_times[task_id], -1);
+        }
+
+        std::sort(events.begin(), events.end());
+
+        int32_t current_active = 0;
+        int32_t max_active = 0;
+
+        for (const auto& event : events) {
+            current_active += event.second;
+            max_active = std::max(max_active, current_active);
+        }
+
+        system_cost += proc[pe].cost * max_active;
     }
 
     std::cout << "Task assignment:\n";
