@@ -453,6 +453,10 @@ bool TaskGraph::refine_fastest_system(uint32_t max_time) {
         return false;
     }
 
+    std::cout << "Fastest system will complete all tasks in " << time
+              << std::endl
+              << std::endl;
+
     // In queue update proc for this task and check if max time is exceded.
     while (!task_q.empty()) {
         auto cur_t = task_q.front();
