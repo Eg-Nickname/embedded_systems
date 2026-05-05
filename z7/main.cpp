@@ -79,14 +79,8 @@ int main() {
     bool random_edge_w = false;
     std::string output_file = "";
 
-    // get_input_data(tc, pp, hc, cl, random_edge_w, output_file);
+    get_input_data(tc, pp, hc, cl, random_edge_w, output_file);
 
-    tc = 10;
-    pp = 2;
-    hc = 2;
-    cl = 3;
-    random_edge_w = true;
-    output_file = "subtaskgraph.txt";
     gen_file_structure(tc, pp, hc, cl, random_edge_w, output_file);
 
     std::cout << "Tc: " << tc << " PP: " << pp << " HC: " << hc << " CL: " << cl
