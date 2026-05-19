@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <numeric>
 #include <ostream>
 #include <queue>
@@ -91,15 +92,21 @@ class TaskGraph {
 
     // Processed data
     // Stores witch pe is assigned to each task
-    std::vector<uint32_t> task_pe;
+    std::vector<int32_t> task_pe;
     uint32_t max_time;
+    int32_t max_penalty;
+    int32_t k;
+    int32_t l;
+    int32_t p;
 
     std::vector<size_t> start_times;
     std::vector<size_t> end_times;
 
     public:
     // Loads task graph from providded file path
-    TaskGraph(std::string file_path, uint32_t max_time_to_finish);
+    TaskGraph(std::string file_path, uint32_t max_time_to_finish,
+              int32_t max_penalty_treshhold, int32_t penalty_k,
+              int32_t penalty_l, int32_t penalty_p);
 
     private:
     // PARSING
@@ -119,9 +126,10 @@ class TaskGraph {
                                                       uint32_t cl, uint32_t pe);
 
     uint32_t calculate_finish_time();
+    uint32_t calc_cost_with_optimised_pe();
 
     public:
-    bool penalty_cheapest(uint32_t max_time);
+    bool penalty_cheapest();
     void display_system();
 };
 
@@ -130,16 +138,25 @@ std::vector<std::string> split_string(std::string str, char sep);
 auto main(int32_t argc, char** argv) -> int {
     std::string fp;
     uint32_t max_time;
-    if (argc == 1) {
+
+    uint32_t penalty;
+    uint32_t k;
+    uint32_t l;
+    uint32_t p;
+    if (argc < 7) {
         std::cerr << "Provide task graph file and max time as argument"
                   << std::endl;
         return 1;
     } else {
         fp = std::string(argv[1]);
         max_time = std::stoul(argv[2]);
+        penalty = std::stoul(argv[3]);
+        k = std::stoul(argv[4]);
+        l = std::stoul(argv[5]);
+        p = std::stoul(argv[6]);
     }
-    TaskGraph tg = TaskGraph(fp, max_time);
-    auto _ = tg.penalty_cheapest(max_time);
+    TaskGraph tg = TaskGraph(fp, max_time, penalty, k, l, p);
+    auto _ = tg.penalty_cheapest();
     tg.display_system();
 
     return 0;
@@ -160,8 +177,15 @@ std::vector<std::string> split_string(std::string str, char sep) {
     return res;
 }
 
-TaskGraph::TaskGraph(std::string file_path, uint32_t max_time_to_finish) {
-    max_time = max_time_to_finish;
+TaskGraph::TaskGraph(std::string file_path, uint32_t max_time_to_finish,
+                     int32_t max_penalty_treshhold, int32_t penalty_k,
+                     int32_t penalty_l, int32_t penalty_p) {
+    this->max_time = max_time_to_finish;
+    this->max_penalty = max_penalty_treshhold;
+    this->k = penalty_k;
+    this->l = penalty_l;
+    this->p = penalty_p;
+
     std::fstream file;
     file.open(file_path, std::ios::in);
     if (!file) {
@@ -200,7 +224,7 @@ TaskGraph::TaskGraph(std::string file_path, uint32_t max_time_to_finish) {
         }
     }
 
-    this->task_pe = std::vector<uint32_t>(this->adj.size());
+    this->task_pe = std::vector<int32_t>(this->adj.size(), -1);
     this->start_times = std::vector<size_t>(this->adj.size());
     this->end_times = std::vector<size_t>(this->adj.size());
 }
@@ -378,7 +402,6 @@ TaskGraph::parse_comms(std::fstream& file, uint32_t cl, uint32_t pe) {
     return comm;
 }
 
-// Refining algorithm
 uint32_t TaskGraph::calculate_finish_time() {
     // Stores Indegree of node
     std::vector<size_t> indegre(this->adj.size());
@@ -392,6 +415,9 @@ uint32_t TaskGraph::calculate_finish_time() {
     std::iota(task_time.begin(), task_time.end(), 0);
     std::transform(task_time.begin(), task_time.end(), task_time.begin(),
                    [&, this](uint32_t t_id) {
+                       if (this->task_pe[t_id] == -1) {
+                           return 0;
+                       }
                        return this->times[t_id][this->task_pe[t_id]];
                    });
 
@@ -405,10 +431,13 @@ uint32_t TaskGraph::calculate_finish_time() {
         uint32_t cur = q.front();
         q.pop();
         for (auto& [nb, _] : adj[cur]) {
-            start_times[nb] =
-                std::max(start_times[nb], start_times[cur] + task_time[cur]);
-            end_times[nb] =
-                start_times[nb] + this->times[nb][this->task_pe[nb]];
+            if (this->task_pe[cur] != -1 && this->task_pe[nb] != -1) {
+                start_times[nb] = std::max(start_times[nb],
+                                           start_times[cur] + task_time[cur]);
+
+                end_times[nb] =
+                    start_times[nb] + this->times[nb][this->task_pe[nb]];
+            }
             if (--(indegre[nb]) == 0) {
                 q.push(nb);
             }
@@ -417,84 +446,137 @@ uint32_t TaskGraph::calculate_finish_time() {
     return *std::max_element(end_times.begin(), end_times.end());
 }
 
-bool TaskGraph::penalty_cheapest(uint32_t max_time) {
-    // Get list of avelible procesors for each task and sort them by speed
-    std::vector<std::vector<uint32_t>> task_fastest_procesors_list(
-        this->adj.size());
-
-    // Create queue with all tasks inside
-    std::queue<uint32_t> task_q{};
-
-    for (auto t_idx = 0; t_idx < this->adj.size(); ++t_idx) {
-        auto proc_speed_cmp = [&, this, t_idx](uint32_t lhs, uint32_t rhs) {
-            return this->times[t_idx][lhs] > this->times[t_idx][rhs];
-        };
-
-        for (auto p_idx = 0; p_idx < this->times[t_idx].size(); ++p_idx) {
-            if (this->times[t_idx][p_idx] != -1) {
-                task_fastest_procesors_list[t_idx].push_back(p_idx);
-            }
-        }
-        std::sort(task_fastest_procesors_list[t_idx].begin(),
-                  task_fastest_procesors_list[t_idx].end(), proc_speed_cmp);
-        // assign fastest proc to this task at begining
-        this->task_pe[t_idx] = task_fastest_procesors_list[t_idx].back();
-        task_fastest_procesors_list[t_idx].pop_back();
-
-        if (task_fastest_procesors_list[t_idx].size() > 0) {
-            task_q.push(t_idx);
-        }
-    }
-    auto time = calculate_finish_time();
-    // std::cout << "Fastest time is " << time << std::endl;
-    if (time > this->max_time) {
-        std::cout << "Cant find system that meets time constraint:" << max_time
-                  << std::endl;
-        return false;
-    }
-
-    std::cout << "Fastest system will complete all tasks in " << time
-              << std::endl
-              << std::endl;
-
-    // In queue update proc for this task and check if max time is exceded.
-    while (!task_q.empty()) {
-        auto cur_t = task_q.front();
-        task_q.pop();
-
-        auto cur_t_pe = task_pe[cur_t];
-        task_pe[cur_t] = task_fastest_procesors_list[cur_t].back();
-        task_fastest_procesors_list[cur_t].pop_back();
-        auto time = calculate_finish_time();
-
-        if (time > this->max_time) {
-            // If yes go back to old proc
-            task_pe[cur_t] = cur_t_pe;
-        } else {
-            // Else pop from avalible procesors and readd to queue if eny left
-            if (task_fastest_procesors_list[cur_t].size() > 0) {
-                task_q.push(cur_t);
-            }
-        }
-        // Do until queue empty
-    }
-
-    // // Print selected info
+bool TaskGraph::penalty_cheapest() {
     // std::cout << "Slowest time is " << time << std::endl;
+    std::vector<size_t> indegre(this->adj.size());
+    for (auto& nb_list : adj) {
+        for (auto& n : nb_list) {
+            ++indegre[n.first];
+        }
+    }
+
+    auto q = std::queue<uint32_t>();
+    q.push(0);
+    while (!q.empty()) {
+        auto t = q.front();
+        q.pop();
+        for (auto& [nb, _] : adj[t]) {
+            if (--(indegre[nb]) == 0) {
+                q.push(nb);
+            }
+        }
+
+        // for (auto t = 0; t < this->adj.size(); ++t) {
+        // auto cost = std::numeric_limits<uint32_t>::max();
+        // this->task_pe[t] = 0;
+        std::vector<std::pair<uint32_t, uint32_t>> proc_system_cost{};
+        for (auto i = 0; i < this->proc.size(); ++i) {
+            this->task_pe[t] = i;
+            if (this->times[t][i] != -1) {
+                auto new_c = calc_cost_with_optimised_pe();
+                proc_system_cost.push_back({new_c, i});
+            }
+        }
+        this->task_pe[t] = -1;
+        std::sort(proc_system_cost.begin(), proc_system_cost.end());
+
+        for (auto [cost, p] : proc_system_cost) {
+            this->task_pe[t] = p;
+            // Now we have cheapest system with task selelected for our T
+            auto end_time = calculate_finish_time();
+
+            // Now we can calculate penalty function and check if we are in spec
+            auto calced_p =
+                k * cost + l * end_time +
+                p * (std::max(0, (int32_t)end_time - (int32_t)max_time));
+
+            if (calced_p < max_penalty) {
+                auto new_c = calc_cost_with_optimised_pe();
+                // std::cout << "Penalty for T" << t << " = " << calced_p
+                //           << " C=" << cost << " new_c=" << new_c
+                //           << " T=" << end_time << std::endl;
+                break;
+            } else {
+                this->task_pe[t] = -1;
+            }
+        }
+
+        if (this->task_pe[t] == -1) {
+            std::cout << "Failed to find solution that satisfies penalty "
+                         "function"
+                      << std::endl;
+            std::cout << "System finished without assigning T" << t
+                      << std::endl;
+            return false;
+        }
+    }
     return true;
 }
 
 void TaskGraph::display_system() {
+    // this->task_pe[9] = -1;
+    // this->task_pe[8] = -1;
+    uint32_t system_cost = calc_cost_with_optimised_pe();
+
     auto end_time = calculate_finish_time();
 
+    std::vector<std::vector<uint32_t>> pe_tasks(this->proc.size());
+
+    // Add cost of each task and create list of tasks that are assigned to
+    // each
+    // pe
+    for (size_t t = 0; t < this->adj.size(); ++t) {
+        // system_cost += cost[t][this->task_pe[t]];
+        if (this->task_pe[t] != -1) {
+            pe_tasks[this->task_pe[t]].push_back(t);
+        }
+    }
+
+    auto calced_p = k * system_cost + l * end_time +
+                    p * (std::max(0, (int32_t)end_time - (int32_t)max_time));
+
+    std::cout << "Task assignment:\n";
+    uint32_t pp_count = 0;
+    uint32_t hc_count = 0;
+    for (size_t i = 0; i < pe_tasks.size(); i++) {
+        if (this->proc[i].type == PeType::PP) {
+            std::cout << "PP" << pp_count << ":";
+            pp_count++;
+        } else {
+            std::cout << "HC" << hc_count << ":";
+            hc_count++;
+        }
+
+        for (auto task : pe_tasks[i]) {
+            std::cout << " " << task << "(" << start_times[task] << ")";
+        }
+        std::cout << std::endl;
+    }
+
+    std::cout << std::endl;
+    std::cout << "No Cl assigned. No data to send between tasks." << std::endl;
+    std::cout << std::endl;
+
+    std::cout << "System cost " << system_cost << "\n";
+    std::cout << "System will perform all calculations after " << end_time
+              << " allowed time was " << max_time << std::endl
+              << "\nCalculated penalty " << calced_p << " with max allowed "
+              << max_penalty << std::endl;
+}
+
+uint32_t TaskGraph::calc_cost_with_optimised_pe() {
+    calculate_finish_time();
     uint32_t system_cost = 0;
     std::vector<std::vector<uint32_t>> pe_tasks(this->proc.size());
 
-    // Add cost of each task and create list of tasks that are assigned to each
-    // pe
+    // Add cost of each task and create list of tasks that are assigned to
+    // each pe
     for (size_t t = 0; t < this->adj.size(); ++t) {
-        system_cost += cost[t][this->task_pe[t]];
-        pe_tasks[this->task_pe[t]].push_back(t);
+        if (this->task_pe[t] != -1) {
+            // std::cout << "COST DBG: " << this->task_pe[t] << std::endl;
+            system_cost += cost[t][this->task_pe[t]];
+            pe_tasks[this->task_pe[t]].push_back(t);
+        }
     }
 
     // Imporve pp usage to reduce redundant pe
@@ -523,29 +605,5 @@ void TaskGraph::display_system() {
         system_cost += proc[pe].cost * max_active;
     }
 
-    std::cout << "Task assignment:\n";
-    uint32_t pp_count = 0;
-    uint32_t hc_count = 0;
-    for (size_t i = 0; i < pe_tasks.size(); i++) {
-        if (this->proc[i].type == PeType::PP) {
-            std::cout << "PP" << pp_count << ":";
-            pp_count++;
-        } else {
-            std::cout << "HC" << hc_count << ":";
-            hc_count++;
-        }
-
-        for (auto task : pe_tasks[i]) {
-            std::cout << " " << task << "(" << start_times[task] << ")";
-        }
-        std::cout << std::endl;
-    }
-
-    std::cout << std::endl;
-    std::cout << "No Cl assigned. No data to send between tasks." << std::endl;
-    std::cout << std::endl;
-
-    std::cout << "Refined system cost " << system_cost << "\n";
-    std::cout << "System will perform all calculations after " << end_time
-              << " allowed time was " << max_time << std::endl;
+    return system_cost;
 }
